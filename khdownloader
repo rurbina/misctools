@@ -1,0 +1,32 @@
+#!/usr/bin/perl 
+
+use common::sense;
+
+my $index_url = $ARGV[0];
+
+my $index = qx{curl -s '$index_url'};
+
+my %files;
+
+foreach ( split /\n/, $index ) {
+	chomp;chomp;
+
+	next unless m!href="(http://downloads.khinsider.com/game-soundtracks/album/[^"]+)!;
+	next if $files{$1};
+
+	$files{$1} = 1;
+
+}
+
+foreach ( sort keys %files ) {
+
+	my $dl = qx{curl -s '$_'};
+
+	my @lines = split /\n/, $dl;
+
+	my ($winner) = grep { $_ =~ "Click here to download" } @lines;
+	$winner =~ m!href="([^"]+)"!;
+
+	qx{wget -q -c $1};
+
+}
