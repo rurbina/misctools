@@ -1,1 +1,239 @@
-/home/rurbina/bin/mangafox-downloader
+#! /usr/local/bin/perl
+
+use common::sense;
+use HTTP::Tiny;
+use Getopt::Long;
+use File::Temp qw(tempdir);
+use File::Slurp qw(read_file write_file);
+use HTML::DOM;
+use Data::Dumper qw(Dumper);
+$Data::Dumper::Sortkeys = 1;
+
+my $base_url = "http://mangafox.me/manga";
+
+my $tempdir = tempdir( CLEANUP => 1 );
+
+my ( $manga_id, $volume_num, $chapter_num, $caching, $quiet );
+
+GetOptions(
+	"manga=s" => \$manga_id,
+	"volume=i" => \$volume_num,
+	"chapter=i" => \$chapter_num,
+	"z!" => \$caching,
+	"quiet!" => \$quiet,
+);
+
+unless ( $manga_id ) {
+	say "usage: $0 --manga <manga_id> (--volume <volume_num>) (--chapter <chapter_num>)";
+	exit;
+}
+
+my $index_html;
+
+if ( -f "$manga_id.html" ) {
+	$index_html = read_file("$manga_id.html");
+}
+else {
+	my $index_response = HTTP::Tiny->new->get("$base_url/$manga_id/");
+	$index_html = $index_response->{content};
+}
+
+my $index = new HTML::DOM;
+$index->write($index_html);
+
+exit &get_chapter($volume_num, $chapter_num) if $volume_num && $chapter_num;
+
+exit &list_chapters( $volume_num ) if $volume_num;
+
+exit &list_volumes;
+
+##############################
+
+sub list_volumes {
+
+	my $i = 1;
+
+	foreach my $vol (&extract_volumes) {
+
+		local $, = "\t";
+		say $i, $vol->innerText;
+		$i++;
+	}
+
+}
+
+sub extract_volumes {
+
+	my $volume_list = $index->getElementById('chapters');
+
+	my @volumes = $volume_list->getElementsByClassName('volume');
+
+	return reverse @volumes;
+
+}
+
+sub extract_chapters {
+
+	my ( $vol_num ) = @_;
+
+	my @chapter_lists = reverse $index->getElementsByClassName('chlist');
+
+	return reverse $chapter_lists[$vol_num - 1]->getElementsByTagName('li');
+	
+}
+
+sub list_chapters {
+
+	my $vol_num = shift;
+
+	my @chapters = &extract_chapters($vol_num);
+	my $i = 1;
+
+	foreach my $ch ( @chapters ) {
+		local $, = "\t";
+		say
+		    $i,
+		    $ch->getElementsByClassName('tips')->[0]->innerText,
+		    "\e[33m".$ch->getElementsByClassName('title')->[0]->innerText."\e[0m";
+		$i++;
+	}
+
+}
+
+sub get_chapter_info {
+
+	my ( $voln, $chn ) = @_;
+
+	my @chapters = &extract_chapters($voln);
+
+	my $ch = $chapters[ $chn - 1 ];
+
+	my $info = {
+		title    => $ch->getElementsByClassName('tips')->[0]->innerText,
+		subtitle => $ch->getElementsByClassName('title')->[0]->innerText,
+		url      => '' . $ch->getElementsByClassName('tips')->[0]->attributes->{href},
+	};
+
+	return $info;
+
+}
+
+sub get_chapter_entry {
+	
+	my ( $voln, $chn ) = @_;
+
+	my @chapters = &extract_chapters($voln);
+
+	my $ch = $chapters[ $chn - 1 ];
+
+	return ''.$ch->getElementsByClassName('tips')->[0]->attributes->{href};
+
+}
+
+sub get_chapter {
+
+	my ( $voln, $chn ) = @_;
+
+	my $ch = &get_chapter_info( $voln, $chn );
+
+	my $url = &get_chapter_entry( $voln, $chn );
+
+	my $page = &get_page( $voln, $chn, $url );
+
+	my $dir = $caching ? "$manga_id:$voln:$chn" : $tempdir;
+
+	say "Downloading $ch->{title} $ch->{subtitle}..." unless $quiet;
+
+	mkdir($dir) unless -d $dir;
+
+	while ($page) {
+
+		my $index = sprintf( '%04d', $page->{index} );
+
+		$page->{image_url} =~ m/\.([a-z]+)$/;
+		my $suffix = $1;
+
+		my $filename = "$dir/$index.$suffix";
+		$filename = "$dir/" . $page->{image_name} if $page->{image_name};
+
+		unless ( -f $filename ) {
+			my $img_response = HTTP::Tiny->new->get("$page->{image_url}");
+			write_file( $filename, $img_response->{content} );
+		}
+
+		print "." unless $quiet;
+
+		$page = $page->{next_url} ? get_page( $voln, $chn, $page->{next_url}, $page->{index} + 1 ) : undef;
+
+	}
+
+	# zip images
+	my $zipfilename = $ch->{title} . ( $ch->{subtitle} ? " - $ch->{subtitle}" : '' );
+	$zipfilename = "${manga_id}_v${voln}_c${chn}" unless $zipfilename;
+	$zipfilename =~ s/'/'\''/g;
+	$zipfilename .= ".cbz";
+
+	system "zip -jq '$zipfilename' $dir/*";
+
+	say "\nDownloaded as $zipfilename OK" unless $quiet;
+
+}
+
+sub get_page {
+
+	my ( $voln, $chn, $url, $index ) = @_;
+
+	$index //= 1;
+
+	my $page   = new HTML::DOM;
+	my $cached = "${manga_id}_${voln}_${chn}_${index}.html";
+
+	$cached = "$tempdir/$cached" unless $caching;
+
+	if ( -f $cached ) {
+		my $file = read_file($cached);
+		$page->write($file);
+	}
+	else {
+		my $r       = HTTP::Tiny->new->get("$url");
+		my $content = $r->{content};
+		if ( $r->{headers}->{'content-encoding'} eq 'gzip' ) {
+			write_file( "$cached.gz", $r->{content} );
+			system "gunzip $cached.gz";
+			$content = read_file($cached);
+			system("rm $cached") unless $caching;
+		}
+		else {
+			$content = $r->{content};
+		}
+		$page->write($content);
+	}
+
+	my $page_struct = {
+		index      => $index,
+		url        => $url,
+		image_name => undef,
+		image_url  => undef,
+		next_url   => undef,
+	};
+
+	$page_struct->{image_url} = '' . $page->getElementsByTagName('img')->[0]->attributes->{src};
+	$page_struct->{next_url}  = '' . $page->getElementsByClassName('read_img')->[0]->getElementsByTagName('a')->[0]->attributes->{href};
+
+	$page_struct->{image_url} =~ m!/([^/]+)$!;
+	$page_struct->{image_name} = $1;
+
+	if ( $page_struct->{next_url} =~ m(/) ) {
+		die $page_struct->{next_url};
+	}
+	elsif ( $page_struct->{next_url} eq 'javascript:void(0);' ) {
+		$page_struct->{next_url} = undef;
+	}
+	else {
+		$url =~ m!^(.*?/)[^/]+$!;
+		$page_struct->{next_url} = $1 . $page_struct->{next_url};
+	}
+
+	return $page_struct;
+
+}
