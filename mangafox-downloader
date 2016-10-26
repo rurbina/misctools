@@ -156,8 +156,6 @@ sub get_chapter {
 		return;
 	}
 
-	$zipfilename =~ s/'/'\\''/g;
-
 	mkdir($dir) unless -d $dir;
 
 	while ($page) {
@@ -183,7 +181,10 @@ sub get_chapter {
 
 	# zip images
 
-	system "zip -jq '$zipfilename' $dir/*";
+	$zipfilename =~ s/'/'\\''/g;
+	my $move = '-m' unless $caching;
+	
+	system "zip -jq $move '$zipfilename' $dir/*";
 
 	say "\nDownloaded as $zipfilename OK" unless $quiet;
 
@@ -258,6 +259,9 @@ sub get_all {
 	my $volnum = 1;
 	
 	foreach my $vol ( &extract_volumes ) {
+
+		
+
 		say $volnum, $vol->innerText . '...';
 
 		my $chnum = 1;
