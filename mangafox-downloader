@@ -13,17 +13,19 @@ my $base_url = "http://mangafox.me/manga";
 
 my $tempdir = tempdir( CLEANUP => 1 );
 
-my ( $manga_id, $volume_num, $chapter_num, $caching, $quiet );
+my ( $manga_id, $volume_num, $chapter_num, $caching, $quiet, $force, $all );
 
 GetOptions(
-	"manga=s" => \$manga_id,
-	"volume=i" => \$volume_num,
+	"manga=s"   => \$manga_id,
+	"volume=i"  => \$volume_num,
 	"chapter=i" => \$chapter_num,
-	"z!" => \$caching,
-	"quiet!" => \$quiet,
+	"z!"        => \$caching,
+	"quiet!"    => \$quiet,
+	"force!"    => \$force,
+	"all!"      => \$all,
 );
 
-unless ( $manga_id ) {
+unless ($manga_id) {
 	say "usage: $0 --manga <manga_id> (--volume <volume_num>) (--chapter <chapter_num>)";
 	exit;
 }
@@ -41,9 +43,11 @@ else {
 my $index = new HTML::DOM;
 $index->write($index_html);
 
-exit &get_chapter($volume_num, $chapter_num) if $volume_num && $chapter_num;
+exit &get_all if $all;
 
-exit &list_chapters( $volume_num ) if $volume_num;
+exit &get_chapter( $volume_num, $chapter_num ) if $volume_num && $chapter_num;
+
+exit &list_chapters($volume_num) if $volume_num;
 
 exit &list_volumes;
 
@@ -74,12 +78,12 @@ sub extract_volumes {
 
 sub extract_chapters {
 
-	my ( $vol_num ) = @_;
+	my ($vol_num) = @_;
 
 	my @chapter_lists = reverse $index->getElementsByClassName('chlist');
 
-	return reverse $chapter_lists[$vol_num - 1]->getElementsByTagName('li');
-	
+	return reverse $chapter_lists[ $vol_num - 1 ]->getElementsByTagName('li');
+
 }
 
 sub list_chapters {
@@ -87,14 +91,13 @@ sub list_chapters {
 	my $vol_num = shift;
 
 	my @chapters = &extract_chapters($vol_num);
-	my $i = 1;
+	my $i        = 1;
 
-	foreach my $ch ( @chapters ) {
+	foreach my $ch (@chapters) {
 		local $, = "\t";
-		say
-		    $i,
-		    $ch->getElementsByClassName('tips')->[0]->innerText,
-		    "\e[33m".$ch->getElementsByClassName('title')->[0]->innerText."\e[0m";
+		say $i,
+		  $ch->getElementsByClassName('tips')->[0]->innerText,
+		  "\e[33m" . $ch->getElementsByClassName('title')->[0]->innerText . "\e[0m";
 		$i++;
 	}
 
@@ -119,14 +122,14 @@ sub get_chapter_info {
 }
 
 sub get_chapter_entry {
-	
+
 	my ( $voln, $chn ) = @_;
 
 	my @chapters = &extract_chapters($voln);
 
 	my $ch = $chapters[ $chn - 1 ];
 
-	return ''.$ch->getElementsByClassName('tips')->[0]->attributes->{href};
+	return '' . $ch->getElementsByClassName('tips')->[0]->attributes->{href};
 
 }
 
@@ -142,7 +145,18 @@ sub get_chapter {
 
 	my $dir = $caching ? "$manga_id:$voln:$chn" : $tempdir;
 
+	my $zipfilename = $ch->{title} . ( $ch->{subtitle} ? " - $ch->{subtitle}" : '' );
+	$zipfilename = "${manga_id}_v${voln}_c${chn}" unless $zipfilename;
+	$zipfilename .= ".cbz";
+
 	say "Downloading $ch->{title} $ch->{subtitle}..." unless $quiet;
+
+	if ( !$force && -f $zipfilename ) {
+		say "Skipping $ch->{title} $ch->{subtitle}: already downloaded";
+		return;
+	}
+
+	$zipfilename =~ s/'/'\\''/g;
 
 	mkdir($dir) unless -d $dir;
 
@@ -168,10 +182,6 @@ sub get_chapter {
 	}
 
 	# zip images
-	my $zipfilename = $ch->{title} . ( $ch->{subtitle} ? " - $ch->{subtitle}" : '' );
-	$zipfilename = "${manga_id}_v${voln}_c${chn}" unless $zipfilename;
-	$zipfilename =~ s/'/'\''/g;
-	$zipfilename .= ".cbz";
 
 	system "zip -jq '$zipfilename' $dir/*";
 
@@ -197,6 +207,7 @@ sub get_page {
 	else {
 		my $r       = HTTP::Tiny->new->get("$url");
 		my $content = $r->{content};
+		
 		if ( $r->{headers}->{'content-encoding'} eq 'gzip' ) {
 			write_file( "$cached.gz", $r->{content} );
 			system "gunzip $cached.gz";
@@ -236,4 +247,29 @@ sub get_page {
 
 	return $page_struct;
 
+}
+
+sub get_all {
+
+	local $, = "\t";
+
+	say "Downloading every chapter from every volume for $manga_id...";
+
+	my $volnum = 1;
+	
+	foreach my $vol ( &extract_volumes ) {
+		say $volnum, $vol->innerText . '...';
+
+		my $chnum = 1;
+		foreach my $ch ( &extract_chapters($volnum) ) {
+
+			&get_chapter($volnum, $chnum);
+			
+			$chnum++;
+		}
+
+		$volnum++;
+
+	}
+	
 }
