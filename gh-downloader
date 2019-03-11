@@ -8,14 +8,14 @@ do
     test -e $TMP.index || curl -s $url > $TMP.index
 
     # get title
-    TITLE=`grep -Po '(?<=<h1 id="gn">)[^<]+' $TMP.index | perl -MHTML::Entities -pne '$_=decode_entities($_); s/\|/./g' `
+    TITLE=`perl -Mcommon::sense -MHTML::Entities -ne 'if ( /(?<=<h1 id="gn">)([^<]+)/ ) { my $a = decode_entities($1); $a =~ s/[\/\\|]/./g; print "$a\n" }' < $TMP.index`
 
     echo $TITLE
     test -e $TITLE.cbz && exit
 
     # pagination
     echo $url > $TMP.pages
-    grep -Po '(?<=href=")[^"]*?p=\d+' $TMP.index | sort -u >> $TMP.pages
+    perl -Mcommon::sense -ne '/(?<=href=")([^"]*?p=\d+)/; say $1 if $1' $TMP.index | sort -u >> $TMP.pages
 
     i=1
     
@@ -25,11 +25,11 @@ do
 
 	# parse page for images
 	test -e $TMP.images.$i ||
-	    grep -Po '(?<=href=")[^"]*?\d-\d+' $TMP.page.$i >> $TMP.images.$i
+	    perl -ne 'my @matches = m/(?<=href=")([^"]*?\d-\d+)/g; foreach my $a (@matches) { print "$a\n"; }' < $TMP.page.$i | tee $TMP.images.$i
 
 	cat $TMP.images.$i | while read link
 	do
-	    curl -s $link | grep -Po '(?<=<img id="img" src=")[^"]+' | wget -q -nc -i -
+	    curl -s $link | perl -Mcommon::sense -ne '/(?<=<img id="img" src=")([^"]+)/; say $1 if $1' | wget -q -nc -i -
 	    echo -n .
 	done
 	
@@ -43,7 +43,6 @@ do
     \zip -dd -m $TITLE.zip *.png
     mv $TITLE.zip $TITLE.cbz
     
-    #grep -Po '(?<=href=")[^"]*?\d-\d+' $TMP.index > $TMP.pages
 done
 
 rm -f $TMP $TMP.*
