@@ -1,14 +1,14 @@
 #!/bin/zsh
 
-TMP=`mktemp`
-
 for url in $@
 do
+    TMP=`mktemp`
+
     echo "Extracting from $url..."
-    test -e $TMP.index || curl -s $url > $TMP.index
+    test -e $TMP.index || curl -s -b nw=1 $url > $TMP.index
 
     # get title
-    TITLE=`perl -Mcommon::sense -MHTML::Entities -ne 'if ( /(?<=<h1 id="gn">)([^<]+)/ ) { my $a = decode_entities($1); $a =~ s/[\/\\|]/./g; print "$a\n" }' < $TMP.index`
+    TITLE=`perl -Mcommon::sense -MHTML::Entities -ne 'if ( /(?<=<h1 id="gn">)([^<]+)/ ) { my $a = decode_entities($1); $a =~ s/[\/\\|]/./g; $a =~ s/\{/(/g; $a =~ s/\}/)/g; print "$a\n" }' < $TMP.index`
 
     echo $TITLE
     test -e $TITLE.cbz && exit
@@ -21,15 +21,15 @@ do
     
     cat $TMP.pages | while read page
     do
-	test -e $TMP.page.$i || curl -s $page > $TMP.page.$i
+	test -e $TMP.page.$i || curl -s -b nw=1 $page > $TMP.page.$i
 
 	# parse page for images
 	test -e $TMP.images.$i ||
-	    perl -ne 'my @matches = m/(?<=href=")([^"]*?\d-\d+)/g; foreach my $a (@matches) { print "$a\n"; }' < $TMP.page.$i | tee $TMP.images.$i
+	    perl -ne 'my @matches = m/(?<=href=")([^"]*?\d-\d+)/g; foreach my $a (@matches) { print "$a\n"; }' < $TMP.page.$i > $TMP.images.$i
 
 	cat $TMP.images.$i | while read link
 	do
-	    curl -s $link | perl -Mcommon::sense -ne '/(?<=<img id="img" src=")([^"]+)/; say $1 if $1' | wget -q -nc -i -
+	    curl -s -b nw=1 $link | perl -Mcommon::sense -ne '/(?<=<img id="img" src=")([^"]+)/; say $1 if $1' | wget -q -nc -i -
 	    echo -n .
 	done
 	
@@ -39,10 +39,11 @@ do
     echo ''
     
     # zip 'em
-    \zip -dd -m $TITLE.zip *.jpg
-    \zip -dd -m $TITLE.zip *.png
+    \zip -q -d -m $TITLE.zip *.jpg
+    \zip -q -d -m $TITLE.zip *.png
     mv $TITLE.zip $TITLE.cbz
     
+    rm -f $TMP $TMP.*
+
 done
 
-rm -f $TMP $TMP.*
