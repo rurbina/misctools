@@ -39,8 +39,8 @@ do
     echo ''
     
     # zip 'em
-    \zip -q -d -m $TITLE.zip *.jpg
-    \zip -q -d -m $TITLE.zip *.png
+    \zip -q -dd -m $TITLE.zip *.jpg
+    \zip -q -dd -m $TITLE.zip *.png
     mv $TITLE.zip $TITLE.cbz
     
     rm -f $TMP $TMP.*
