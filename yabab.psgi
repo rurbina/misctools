@@ -71,7 +71,7 @@ sub get_members {
 	my $sql = qq{
 	select *
 	    from smf_members
-	    where true
+	    where 1=1
 	    $pp{sql}
 	};
 
@@ -88,7 +88,7 @@ sub get_topics {
 	my $sql = qq{
 	select *
 	    from smf_topics
-	    where true
+	    where 1=1
 	    $pp{sql}
 	};
 
@@ -120,7 +120,7 @@ sub get_messages {
 	my $sql = qq{
 	select *
 	    from smf_messages
-	    where true
+	    where 1=1
 	    $pp{sql}
 	};
 
@@ -194,28 +194,35 @@ sub templates {
 
 	$tt{err404} = qq{<h1>Not found</h1>};
 
-	$tt{index} = qq{<h1>Index</h1>
-			[% FOREACH i = boards %]
-<h2><a href="/board/[% i.ID_BOARD %]">[% i.name %]</a></h2>
-<p>[% i.description %]</p>
-<p>[% i.numPosts %] posts in [% i.numTopics %] topics</p>
-[% END %]
-};
+	$tt{index} = qq{
+	<h1>Index</h1>
+	[% FOREACH i = boards %]
+	    <h2><a href="/board/[% i.ID_BOARD %]">[% i.name %]</a></h2>
+	    <p>[% i.description %]</p>
+	    <p>[% i.numPosts %] posts in [% i.numTopics %] topics</p>
+	[% END %]
+	};
 
-	$tt{board} = qq{<h1>[% board.name %]</h1>
-			[% FOREACH i = topics %]
-<h2><a href="/topic/[% board.ID_BOARD %]/[% i.ID_TOPIC %]">[% i.name %]</a> by [% i.member.memberName %] at [% i.msg.date %]</h2>
-<hr>
-[% END %]
-};
+	$tt{board} = qq{
+	<h1>[% board.name %]</h1>
+	    <dl>
+	[% FOREACH i = topics %]
+	    <dt><a href="/topic/[% board.ID_BOARD %]/[% i.ID_TOPIC %]">[% i.name %]</a></dt>
+	    <dd>by [% i.member.memberName %] at [% i.msg.date %]</dd>
+	[% END %]
+	    </dl>
+	};
 
-	$tt{topic} = qq{<h1>[% topic.name %]</h1>
-			[% FOREACH i = messages %]
-<h2>[% i.subject %] by [% i.member.memberName %]</h2>
-<section>[% i.body %]</section>
-<hr>
-[% END %]
-};
+	$tt{topic} = qq{
+	<h1>[% topic.name %]</h1>
+	[% FOREACH i = messages %]
+	    <section>
+	    <header><b>[% i.subject %]</b> by <b>[% i.member.memberName %]</b> at [% i.date %]</header>
+	[% i.body %]
+	    </section>
+	    <hr>
+	[% END %]
+	};
 
 	return \%tt;
 
