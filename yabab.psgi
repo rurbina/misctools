@@ -5,7 +5,10 @@ use common::sense;
 use Dancer2;
 use Template;
 use DBD::SQLite;
-use File::Slurper qw(read_dir);
+use File::Slurper qw(read_dir read_text);
+use Data::Dumper qw(Dumper);
+$Data::Dumper::Sortkeys = 1;
+
 my $dbh;
 
 set database => 'smf.db';
@@ -14,9 +17,9 @@ set session  => 'Simple';
 
 get '/' => sub {
 
-	my $dbh = &connect_db();
+	$dbh = &connect_db();
 
-	my @boards;
+	my $data;
 
 	my $sql = qq{
 	select *
@@ -27,10 +30,12 @@ get '/' => sub {
 	$sth->execute();
 
 	while ( my $board = $sth->fetchrow_hashref() ) {
-		push @boards, $board;
+		push @{ $data->{boards} }, $board;
 	}
 
-	render( 'index', { boards => \@boards } );
+	$data->{rel} = { top => '/', up => '/' };
+
+	render( 'index', $data );
 };
 
 get '/board/:id' => sub {
@@ -42,7 +47,8 @@ get '/board/:id' => sub {
 
 	$data->{topics} = [ &get_topics( sql => qq{and ID_BOARD = ? order by ID_FIRST_MSG desc}, args => [$board_id] ) ];
 
-	
+	$data->{rel} = { top => '/', up => '/' };
+
 	render( 'board', $data );
 
 };
@@ -57,6 +63,8 @@ get '/topic/:board/:topic' => sub {
 	$data->{topic} = ( &get_topics( sql => qq{and ID_BOARD = ? and ID_TOPIC = ?}, args => [ $board_id, $topic_id ] ) )[0];
 
 	$data->{messages} = [ &get_messages( sql => qq{and ID_TOPIC = ?}, args => [$topic_id] ) ];
+
+	$data->{rel} = { top => '/', up => '/board/' . $board_id };
 
 	render( 'topic', $data );
 
@@ -132,7 +140,7 @@ sub get_messages {
 
 	foreach my $msg (@messages) {
 		$msg->{member} = $members{ $msg->{ID_MEMBER} };
-		$msg->{date} = localtime($msg->{posterTime});
+		$msg->{date}   = localtime( $msg->{posterTime} );
 	}
 
 	return @messages;
@@ -143,7 +151,7 @@ sub query {
 
 	my (%pp) = @_;
 
-	my $dbh = &connect_db();
+	$dbh //= &connect_db();
 
 	my @items;
 
@@ -161,7 +169,7 @@ sub query {
 }
 
 sub connect_db {
-	my $dbh = DBI->connect( "dbi:SQLite:dbname=" . setting('database'), '', '', { sqlite_unicode => 1 } )
+	$dbh //= DBI->connect( "dbi:SQLite:dbname=" . setting('database'), '', '', { sqlite_unicode => 1 } )
 	  or die $DBI::errstr;
 	return $dbh;
 }
@@ -223,6 +231,13 @@ sub templates {
 	    <hr>
 	[% END %]
 	};
+
+	foreach my $key ( keys %tt ) {
+		my $name = $key . ".tt";
+		if ( -e $name ) {
+			$tt{$key} = read_text($name);
+		}
+	}
 
 	return \%tt;
 
