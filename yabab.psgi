@@ -4,6 +4,8 @@ use utf8;
 use common::sense;
 use Dancer2;
 use Template;
+use Parse::BBCode;
+use HTML::Entities;
 use DBD::SQLite;
 use File::Slurper qw(read_dir read_text);
 use Data::Dumper qw(Dumper);
@@ -138,9 +140,15 @@ sub get_messages {
 	my $mems       = qq{and ID_MEMBER in (} . join( ',', keys %member_ids ) . qq{)};
 	my %members    = map { $_->{ID_MEMBER} => $_ } &get_members( sql => $mems );
 
+	my $bb = Parse::BBCode->new();
+
 	foreach my $msg (@messages) {
 		$msg->{member} = $members{ $msg->{ID_MEMBER} };
 		$msg->{date}   = localtime( $msg->{posterTime} );
+
+		my $bbbody = decode_entities( $msg->{body} );
+		$bbbody =~ s/<br\s*\/?>/\n/ig;
+		$msg->{body_html} = $bb->render_tree( $bb->parse($bbbody) );
 	}
 
 	return @messages;
@@ -226,7 +234,7 @@ sub templates {
 	[% FOREACH i = messages %]
 	    <section>
 	    <header><b>[% i.subject %]</b> by <b>[% i.member.memberName %]</b> at [% i.date %]</header>
-	[% i.body %]
+	[% i.body_html %]
 	    </section>
 	    <hr>
 	[% END %]
