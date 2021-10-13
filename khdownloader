@@ -11,12 +11,23 @@ my %files;
 foreach ( split /\n/, $index ) {
 	chomp;chomp;
 
-	next unless m!href="(http://downloads.khinsider.com/game-soundtracks/album/[^"]+)!;
-	next if $files{$1};
+	next unless m!href="(/game-soundtracks/album/[^"]+)!;
 
-	$files{$1} = 1;
+	my $fn = qq{https://downloads.khinsider.com$1};
+
+	next unless $fn =~ m/\.(mp3|ogg|wav)$/i;
+	
+	next if $files{$fn};
+
+	$files{$fn} = 1;
 
 }
+
+if ( !scalar %files ) {
+	die $index;
+}
+
+printf("downloading %d files\n", scalar(keys %files));
 
 foreach ( sort keys %files ) {
 
@@ -27,6 +38,6 @@ foreach ( sort keys %files ) {
 	my ($winner) = grep { $_ =~ "Click here to download" } @lines;
 	$winner =~ m!href="([^"]+)"!;
 
-	qx{wget -q -c $1};
+	qx{wget -c $1};
 
 }
