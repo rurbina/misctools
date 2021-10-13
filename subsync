@@ -1,0 +1,189 @@
+#!/usr/local/bin/perl
+
+use common::sense;
+use Getopt::Long;
+use Time::Moment;
+use Term::TermKey;
+use Data::Dumper qw(Dumper);
+
+my %arg;
+
+GetOptions(
+	"src=s"          => \$arg{src},
+	"dst=s"          => \$arg{dst},
+	"out=s"          => \$arg{out},
+	"src-encoding=s" => \$arg{src_encoding},
+	"dst-encoding=s" => \$arg{dst_encoding},
+	"ignore-missing" => \$arg{ignore_missing},
+);
+
+exit main();
+
+sub main {
+
+	my @src = load_srt( $arg{src}, $arg{src_encoding} );
+	my @dst = load_srt( $arg{dst}, $arg{dst_encoding} );
+	my @out;
+
+	my ( $x, $y ) = ( 0, 0 );
+	my $offset    = 0;
+	my $threshold = 250;
+	my $fmt       = "%H:%M:%S,%3N";
+
+	my $tk = Term::TermKey->new( \*STDIN );
+
+	for ( $x = 0 ; $x < $#src ; $x++ ) {
+
+		last if $y >= $#dst;
+
+		my ( $s, $d ) = ( $src[$x], $dst[$y] );
+
+		my $d_start = $d->{start_time}->plus_milliseconds($offset);
+
+		my $diff = $s->{start_time}->delta_milliseconds($d_start);
+
+		if ( abs($diff) > 0 ) {
+			printf(
+				"\e[32m%s - %s\e[m\n\e[33m%s - %s\e[m\n is offset by %s, threshold is %d\n",
+				$s->{start},
+				$s->{text} =~ s/\n/ \\ /gr,
+				$d_start->strftime($fmt),
+				$d->{text} =~ s/\n/ \\ /gr,
+				$diff, $threshold,
+			);
+
+			my $do_fix;
+			my $do_keep;
+
+			if ( abs($diff) > $threshold ) {
+				say "[s]kip, [k]eep, [d]elete, [b]acktrack or fix (any other key)?: ";
+
+				$tk->waitkey( my $key );
+				if ( $key->utf8() eq 's' ) {
+					say "skipped";
+					next;
+				}
+				elsif ( $key->utf8() eq 'k' ) {
+					$do_keep = 1;
+				}
+				elsif ( $key->utf8() eq 'd' ) {
+					$x--;
+					$y++;
+				}
+				elsif ( $key->utf8() eq 'b' ) {
+					$x -= 3;
+					next;
+				}
+				else {
+					$do_fix = 1;
+				}
+			}
+			else {
+				say "autofixing under threshold";
+				$do_fix = 1;
+			}
+
+			if ($do_keep) {
+				say "keeping line not in source, offset by $diff milliseconds";
+				my $d_end = parse_time( $d->{end} )->plus_milliseconds($offset);
+
+				$d->{start}      = $d_start->strftime($fmt);
+				$d->{start_time} = $d_start;
+				$d->{end}        = $d_end->strftime($fmt);
+				$d->{end_time}   = $d_end;
+
+				push( @out, $d );
+
+				$y++;
+				$x--;
+			}
+
+			if ($do_fix) {
+				say "fixed";
+				$d->{start}      = $s->{start};
+				$d->{start_time} = $s->{start_time};
+				$d->{end}        = $s->{end};
+				$d->{end_time}   = $s->{end_time};
+
+				push( @out, $d );
+
+				$y++;
+				$offset -= $diff;
+			}
+
+		}
+
+	}
+
+	do {
+		my $out;
+		if ( $arg{out} ) {
+			open( $out, "> :encoding(UTF-8)", $arg{out} );
+		}
+		else {
+			$out = \*STDOUT;
+		}
+
+		my $index = 1;
+		foreach my $i (@dst) {
+			print $out sprintf( "%i\n%s --> %s\n%s\n\n", $index, $i->{start}, $i->{end}, $i->{text}, );
+			$index++;
+		}
+
+		close($out) if $arg{out};
+	};
+
+}
+
+sub load_srt {
+
+	my ( $filename, $encoding ) = @_;
+
+	my @subs;
+
+	local $/ = "\n\n";
+
+	my $recoder = 1 if $encoding;
+	$encoding //= "UTF-8";
+
+	open( my $file, "< :encoding($encoding):crlf", $filename );
+
+	while ( my $raw = readline($file) ) {
+
+		chomp($raw);
+		$raw =~ s/^\x{feff}//g;
+
+		$raw =~ s/\n/\n/g;
+		$raw =~ m/^(?<index>\d+)\n(?<start>.*?) --> (?<end>.*?)\n(?<text>.*)$/s;
+
+		my %item = (%+);
+
+		$item{start_time} = parse_time( $item{start} );
+		$item{end_time}   = parse_time( $item{end} );
+
+		if ($recoder) {
+			$item{text} = Encode::encode( "UTF-8", $item{text} );
+		}
+
+		push( @subs, \%item );
+
+	}
+
+	close($file);
+
+	return @subs;
+
+}
+
+sub parse_time {
+
+	my ($str) = @_;
+
+	$str =~ m/^(?<hour>\d+):(?<minute>\d+):(?<second>\d+),(?<nanosecond>\d+)/;
+
+	my %params = (%+);
+	$params{nanosecond} *= 1_000_000;
+
+	return Time::Moment->new(%params);
+
+}
