@@ -18,3 +18,9 @@ This will download an entire album from downloads.khinsider.com. Enter the downl
 
 ## gh-downloader
 Pretty much another downloader for another site.
+
+## subsync
+This tool helps you to resync a subtitle file to the timing of another file.
+
+Say you got Spanish subtitles for an episode of Grey's Anatomy in spanish, but the timing is wrong. You also downloaded the properly synced .SRT file but it's English only. Using this tool you can sync your Spanish sub to the timing of the English one. Big deal.
+
